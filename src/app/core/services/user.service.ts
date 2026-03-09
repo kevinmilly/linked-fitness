@@ -83,6 +83,10 @@ export class UserService {
     await this.fs.set(`users/${user.uid}`, doc);
   }
 
+  async getProfile(uid: string): Promise<UserDoc | null> {
+    return this.fs.get<UserDoc>(`users/${uid}`);
+  }
+
   async updateProfile(updates: Partial<UserDoc>): Promise<void> {
     const uid = this.auth.uid();
     if (!uid) throw new Error('Not authenticated');

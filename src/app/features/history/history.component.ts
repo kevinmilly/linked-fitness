@@ -19,7 +19,12 @@ interface WeekGroup {
       <h1 style="font-size: 28px; font-weight: 700; color: #f5f5f5; margin: 0 0 8px;">History</h1>
       <p style="color: #888; font-size: 14px; margin: 0 0 20px;">Last 30 days</p>
 
-      @if (loading()) {
+      @if (!pairService.activePair()) {
+        <div style="text-align: center; padding: 48px 16px;">
+          <p style="font-size: 18px; font-weight: 600; color: #f5f5f5; margin: 0 0 8px;">No partner linked yet</p>
+          <p style="color: #888; font-size: 14px; margin: 0;">Link with a partner to start tracking workout history.</p>
+        </div>
+      } @else if (loading()) {
         <div style="color: #888; text-align: center; padding: 40px 0;">Loading...</div>
       } @else if (weekGroups().length === 0) {
         <div style="text-align: center; padding: 60px 20px;">
@@ -63,10 +68,11 @@ interface WeekGroup {
                             @for (i of [1,2,3,4,5]; track i) {
                               <span
                                 style="width: 8px; height: 8px; border-radius: 50%;"
-                                [style.background]="i <= (myData.effortRating || 0) ? '#4ade80' : '#333'"
+                                [style.background]="i <= effortToFive(myData.effortRating || 0) ? '#4ade80' : '#333'"
                               ></span>
                             }
                           </div>
+                          <span style="color: #666; font-size: 11px; margin-left: 4px;">{{ myData.effortRating }}/10</span>
                         </div>
                       }
                     }
@@ -82,7 +88,7 @@ interface WeekGroup {
 })
 export class HistoryComponent implements OnInit {
   private sessionService = inject(SessionService);
-  private pairService = inject(PairService);
+  readonly pairService = inject(PairService);
   private auth = inject(AuthService);
 
   readonly loading = signal(true);
@@ -166,6 +172,10 @@ export class HistoryComponent implements OnInit {
       case 'in_progress': return 'In progress';
       default: return status;
     }
+  }
+
+  effortToFive(rating: number): number {
+    return Math.round(rating / 2);
   }
 
   getMyData(session: SessionDoc) {

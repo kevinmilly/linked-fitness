@@ -63,6 +63,8 @@ import { Timestamp } from 'firebase/firestore';
       color: #f5f5f5;
       cursor: pointer;
       padding: 8px;
+      min-height: 48px;
+      min-width: 48px;
     }
     .badge {
       position: absolute;

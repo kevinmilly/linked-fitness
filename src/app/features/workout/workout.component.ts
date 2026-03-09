@@ -8,6 +8,7 @@ import { PresenceService } from '../../core/services/presence.service';
 import { AudioService } from '../../core/services/audio.service';
 import { StreakService } from '../../core/services/streak.service';
 import { SessionDoc, SessionExercise, CompletionState } from '../../core/models';
+import { UserService } from '../../core/services/user.service';
 import { SwipeCompleteDirective } from '../../shared/directives/swipe-complete.directive';
 
 type WorkoutScreen = 'overview' | 'ready' | 'countdown' | 'active' | 'complete' | 'awaiting';
@@ -63,7 +64,7 @@ type WorkoutScreen = 'overview' | 'ready' | 'countdown' | 'active' | 'complete' 
         <!-- Partner status -->
         <div class="partner-row">
           <div class="partner-avatar" [class.live]="presence.partnerOnline()">
-            P
+            {{ partnerInitial() }}
           </div>
           <span class="partner-label">
             {{ presence.partnerOnline() ? 'Partner is here' : 'Partner offline' }}
@@ -332,12 +333,13 @@ type WorkoutScreen = 'overview' | 'ready' | 'countdown' | 'active' | 'complete' 
     .complete-title { font-size: 24px; font-weight: 700; color: #f5f5f5; margin: 0; }
     .rating-section { width: 100%; max-width: 340px; }
     .rating-label { color: #888; font-size: 14px; margin: 0 0 8px; }
-    .rating-row { display: flex; gap: 4px; justify-content: center; margin-bottom: 24px; }
+    .rating-row { display: flex; gap: 3px; justify-content: center; margin-bottom: 24px; flex-wrap: wrap; }
     .rating-btn {
-      width: 32px; height: 32px; border-radius: 8px; border: 1px solid #333;
+      width: 36px; height: 36px; border-radius: 8px; border: 1px solid #333;
       background: #1a1a1a; color: #888; font-size: 13px; font-weight: 600;
-      cursor: pointer; min-height: 32px; min-width: 32px; padding: 0;
+      cursor: pointer; min-height: 36px; min-width: 36px; padding: 0;
       &.selected { background: #4ade80; color: #0f0f0f; border-color: #4ade80; }
+      &:active { transform: scale(0.95); }
     }
 
     /* Awaiting */
@@ -366,6 +368,9 @@ export class WorkoutComponent implements OnInit, OnDestroy {
   readonly presence = inject(PresenceService);
   private audio = inject(AudioService);
   private streakService = inject(StreakService);
+  private userService = inject(UserService);
+
+  readonly partnerInitial = signal('P');
 
   // State
   screen = signal<WorkoutScreen>('overview');
@@ -462,11 +467,16 @@ export class WorkoutComponent implements OnInit, OnDestroy {
       }
     );
 
-    // Start presence
+    // Start presence & load partner profile
     this.presence.goOnline(pairId);
     const partnerUid = this.pairService.partnerUid();
     if (partnerUid) {
       this.presence.watchPartner(pairId, partnerUid);
+      this.userService.getProfile(partnerUid).then(profile => {
+        if (profile) {
+          this.partnerInitial.set(profile.displayName.charAt(0).toUpperCase());
+        }
+      });
     }
   }
 

@@ -34,8 +34,16 @@ import { ExerciseDoc, ExerciseVariantDoc } from '../../core/models';
         </div>
       </header>
 
+      <!-- Loading state -->
+      @if (loading()) {
+        <div style="display: flex; flex-direction: column; gap: 16px; padding: 16px 0;">
+          <div class="skeleton-line" style="height: 120px; border-radius: 16px;"></div>
+          <div class="skeleton-line" style="height: 80px; border-radius: 12px;"></div>
+        </div>
+      }
+
       <!-- No partner linked state -->
-      @if (!pair.activePair()) {
+      @else if (!pair.activePair()) {
         <div class="empty-state">
           <p class="empty-title">No partner linked yet</p>
           <p class="empty-subtitle">Invite your partner to get started with shared accountability.</p>
@@ -285,6 +293,7 @@ export class TodayComponent implements OnInit, OnDestroy {
   readonly todaySession = computed(() => this.sessionService.todaySession());
   northStarProgress = signal(33);
   sessionGenerating = signal(false);
+  loading = signal(true);
 
   readonly streakCount = computed(() =>
     this.streakService.getSharedStreak('shared_completion')?.currentCount ?? 0
@@ -301,7 +310,19 @@ export class TodayComponent implements OnInit, OnDestroy {
     return name.charAt(0).toUpperCase();
   });
 
-  readonly partnerInitial = computed(() => 'P');
+  readonly partnerInitial = signal('P');
+
+  // Load partner profile for real initial
+  private partnerLoader = effect(() => {
+    const partnerUid = this.pair.partnerUid();
+    if (partnerUid) {
+      this.user.getProfile(partnerUid).then(profile => {
+        if (profile) {
+          this.partnerInitial.set(profile.displayName.charAt(0).toUpperCase());
+        }
+      });
+    }
+  });
 
   readonly myCompleted = computed(() => {
     const session = this.todaySession();
@@ -352,6 +373,8 @@ export class TodayComponent implements OnInit, OnDestroy {
     if (uid) {
       this.notificationService.watchNotifications(uid);
     }
+    // Resolve loading after a brief wait for initial data
+    setTimeout(() => this.loading.set(false), 1500);
   }
 
   ngOnDestroy(): void {

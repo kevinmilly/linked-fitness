@@ -184,12 +184,32 @@ const EQUIPMENT: { id: EquipmentId; label: string }[] = [
         <!-- Danger zone -->
         <section style="margin-top: 8px;">
           <h2 style="font-size: 13px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 12px;">Danger Zone</h2>
-          <button
-            style="background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 16px; color: #ef4444; font-size: 15px; font-weight: 500; cursor: pointer; text-align: left; width: 100%; min-height: 48px;"
-            (click)="signOut()"
-          >
-            Sign Out
-          </button>
+          @if (!confirmingSignOut()) {
+            <button
+              style="background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 16px; color: #ef4444; font-size: 15px; font-weight: 500; cursor: pointer; text-align: left; width: 100%; min-height: 48px;"
+              (click)="confirmingSignOut.set(true)"
+            >
+              Sign Out
+            </button>
+          } @else {
+            <div style="background: #1a1a1a; border: 1px solid #ef4444; border-radius: 12px; padding: 16px;">
+              <p style="color: #f5f5f5; font-size: 14px; margin: 0 0 12px;">Are you sure you want to sign out?</p>
+              <div style="display: flex; gap: 8px;">
+                <button
+                  style="flex: 1; background: #ef4444; color: white; border: none; border-radius: 10px; padding: 12px; font-size: 14px; font-weight: 600; cursor: pointer;"
+                  (click)="signOut()"
+                >
+                  Sign Out
+                </button>
+                <button
+                  style="flex: 1; background: #2a2a2a; color: #888; border: none; border-radius: 10px; padding: 12px; font-size: 14px; font-weight: 500; cursor: pointer;"
+                  (click)="confirmingSignOut.set(false)"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          }
         </section>
       </div>
     </div>
@@ -204,6 +224,7 @@ export class SettingsComponent implements OnInit {
 
   readonly showPreferences = signal(false);
   readonly prefsDirty = signal(false);
+  readonly confirmingSignOut = signal(false);
 
   readonly workoutTypes = WORKOUT_TYPES;
   readonly environments = ENVIRONMENTS;

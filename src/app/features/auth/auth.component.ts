@@ -4,6 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
 import { UserService } from '../../core/services/user.service';
 import { AudioService } from '../../core/services/audio.service';
+import { FirestoreService } from '../../core/services/firestore.service';
+import { UserDoc } from '../../core/models';
 
 @Component({
   selector: 'app-auth',
@@ -25,6 +27,7 @@ import { AudioService } from '../../core/services/audio.service';
               placeholder="Email"
               class="input"
               autocomplete="email"
+              aria-label="Email address"
             />
           </div>
           <div class="form-group">
@@ -34,6 +37,7 @@ import { AudioService } from '../../core/services/audio.service';
               placeholder="Password"
               class="input"
               autocomplete="current-password"
+              aria-label="Password"
             />
           </div>
           <button class="btn-primary" (click)="signIn()" [disabled]="loading()">
@@ -54,6 +58,7 @@ import { AudioService } from '../../core/services/audio.service';
               placeholder="Display name"
               class="input"
               autocomplete="name"
+              aria-label="Display name"
             />
           </div>
           <div class="form-group">
@@ -63,6 +68,7 @@ import { AudioService } from '../../core/services/audio.service';
               placeholder="Email"
               class="input"
               autocomplete="email"
+              aria-label="Email address"
             />
           </div>
           <div class="form-group">
@@ -72,6 +78,7 @@ import { AudioService } from '../../core/services/audio.service';
               placeholder="Password (min 6 characters)"
               class="input"
               autocomplete="new-password"
+              aria-label="Password"
             />
           </div>
           <button class="btn-primary" (click)="signUp()" [disabled]="loading()">
@@ -185,6 +192,7 @@ export class AuthComponent {
   private userService = inject(UserService);
   private audio = inject(AudioService);
   private router = inject(Router);
+  private fs = inject(FirestoreService);
 
   mode = signal<'signin' | 'signup'>('signin');
   email = '';
@@ -197,14 +205,10 @@ export class AuthComponent {
     this.loading.set(true);
     this.error.set('');
     try {
-      await this.authService.signIn(this.email, this.password);
+      const user = await this.authService.signIn(this.email, this.password);
       this.audio.play('tap-primary');
-      // Check if profile exists — if not, go to onboarding (handles invited partners too)
-      this.userService.watchProfile();
-      setTimeout(() => {
-        const profile = this.userService.profile();
-        this.router.navigate([profile ? '/today' : '/onboarding']);
-      }, 500);
+      const profile = await this.fs.get<UserDoc>(`users/${user.uid}`);
+      this.router.navigate([profile ? '/today' : '/onboarding']);
     } catch (err: unknown) {
       this.audio.play('error');
       this.error.set(err instanceof Error ? err.message : 'Sign in failed');
@@ -236,15 +240,10 @@ export class AuthComponent {
     this.loading.set(true);
     this.error.set('');
     try {
-      await this.authService.signInWithGoogle();
+      const user = await this.authService.signInWithGoogle();
       this.audio.play('tap-primary');
-      // Check if profile exists — if not, go to onboarding
-      this.userService.watchProfile();
-      // Small delay for Firestore to resolve
-      setTimeout(() => {
-        const profile = this.userService.profile();
-        this.router.navigate([profile ? '/today' : '/onboarding']);
-      }, 500);
+      const profile = await this.fs.get<UserDoc>(`users/${user.uid}`);
+      this.router.navigate([profile ? '/today' : '/onboarding']);
     } catch (err: unknown) {
       this.audio.play('error');
       this.error.set(err instanceof Error ? err.message : 'Google sign in failed');

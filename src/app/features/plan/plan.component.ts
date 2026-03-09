@@ -198,6 +198,9 @@ type Screen = 'main' | 'builder';
         >
           {{ saving() ? 'Saving...' : 'Save Plan' }}
         </button>
+        @if (saveError()) {
+          <p style="color: #ef4444; text-align: center; font-size: 14px; margin: 8px 0 0;">{{ saveError() }}</p>
+        }
       </div>
     }
   `,
@@ -216,6 +219,7 @@ export class PlanComponent implements OnInit, OnDestroy {
   readonly builderTitle = signal('My Plan');
   readonly builderDays = signal<PlanDay[]>([]);
   readonly saving = signal(false);
+  readonly saveError = signal('');
 
   private watchEffect = effect(() => {
     const pair = this.pairService.activePair();
@@ -294,6 +298,7 @@ export class PlanComponent implements OnInit, OnDestroy {
     if (!pair) return;
 
     this.saving.set(true);
+    this.saveError.set('');
     this.audio.play('tap-primary');
 
     try {
@@ -308,8 +313,8 @@ export class PlanComponent implements OnInit, OnDestroy {
       this.audio.play('workout-complete');
       this.screen.set('main');
     } catch (err) {
-      console.error('Failed to save plan', err);
       this.audio.play('error');
+      this.saveError.set(err instanceof Error ? err.message : 'Failed to save plan. Please try again.');
     } finally {
       this.saving.set(false);
     }
