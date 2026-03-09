@@ -37,6 +37,21 @@ import { ExerciseDoc, ExerciseVariantDoc } from '../../core/models';
         </div>
       </header>
 
+      <!-- Plan notification banner -->
+      @if (showPlanBanner()) {
+        <div class="plan-banner">
+          <span class="plan-banner-icon">📋</span>
+          <div class="plan-banner-text">
+            <strong>Your partner set up a workout plan for you!</strong>
+            <span>Check it out and edit anytime.</span>
+          </div>
+          <div class="plan-banner-actions">
+            <button class="plan-banner-btn" (click)="goToPlan()">View Plan</button>
+            <button class="plan-banner-dismiss" (click)="dismissPlanBanner()">✕</button>
+          </div>
+        </div>
+      }
+
       <!-- Loading state -->
       @if (loading()) {
         <div style="display: flex; flex-direction: column; gap: 16px; padding: 16px 0;">
@@ -169,6 +184,51 @@ import { ExerciseDoc, ExerciseVariantDoc } from '../../core/models';
   `,
   styles: [`
     .today-screen { padding: 20px 16px; }
+    .plan-banner {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      background: #0a2a15;
+      border: 1px solid #4ade80;
+      border-radius: 14px;
+      padding: 14px 16px;
+      margin-bottom: 16px;
+    }
+    .plan-banner-icon { font-size: 22px; flex-shrink: 0; padding-top: 2px; }
+    .plan-banner-text {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      strong { color: #f5f5f5; font-size: 14px; font-weight: 600; }
+      span { color: #888; font-size: 13px; }
+    }
+    .plan-banner-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .plan-banner-btn {
+      background: #4ade80;
+      color: #0f0f0f;
+      border: none;
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .plan-banner-dismiss {
+      background: none;
+      border: none;
+      color: #666;
+      font-size: 16px;
+      cursor: pointer;
+      padding: 4px;
+      line-height: 1;
+    }
     .today-header {
       display: flex;
       justify-content: space-between;
@@ -371,6 +431,7 @@ export class TodayComponent implements OnInit, OnDestroy {
   insightStrip = signal('');
   partnerLastActivity = signal('');
   weeklyWorkoutCount = signal(0);
+  showPlanBanner = signal(localStorage.getItem('showPlanNotification') === '1');
 
   readonly streakCount = computed(() =>
     this.streakService.getSharedStreak('shared_completion')?.currentCount ?? 0
@@ -548,8 +609,15 @@ export class TodayComponent implements OnInit, OnDestroy {
     this.router.navigate(['/partner']);
   }
 
+  dismissPlanBanner(): void {
+    localStorage.removeItem('showPlanNotification');
+    this.showPlanBanner.set(false);
+    this.audio.play('tap-secondary');
+  }
+
   goToPlan(): void {
     this.audio.play('tap-primary');
+    this.dismissPlanBanner();
     this.router.navigate(['/plan']);
   }
 

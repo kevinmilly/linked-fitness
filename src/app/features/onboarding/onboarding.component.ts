@@ -1,11 +1,44 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit, computed } from '@angular/core';
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
 import { UserService } from '../../core/services/user.service';
 import { PairService } from '../../core/services/pair.service';
 import { AudioService } from '../../core/services/audio.service';
-import { ExperienceLevel, PrimaryGoal } from '../../core/models';
+import { ExperienceLevel, PrimaryGoal, WorkoutTypeId } from '../../core/models';
+import { ProposedPlan } from '../../core/models/pair.model';
+import { PlanDay, WorkoutMode, Weekday } from '../../core/models/plan.model';
+
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const WORKOUT_TYPES: { value: WorkoutTypeId; label: string }[] = [
+  { value: 'gym_strength', label: 'Gym Strength' },
+  { value: 'running', label: 'Running' },
+  { value: 'walking', label: 'Walking' },
+  { value: 'calisthenics', label: 'Calisthenics' },
+  { value: 'hiit_conditioning', label: 'HIIT' },
+  { value: 'home_dumbbell', label: 'Home Dumbbells' },
+  { value: 'backyard_bodyweight', label: 'Bodyweight' },
+  { value: 'mobility', label: 'Mobility' },
+  { value: 'pool_swimming', label: 'Swimming' },
+  { value: 'recovery', label: 'Recovery' },
+];
+
+const MODES: { value: WorkoutMode; label: string }[] = [
+  { value: 'together', label: 'Together' },
+  { value: 'separate', label: 'Separate' },
+  { value: 'rest', label: 'Rest' },
+];
+
+function defaultDays(): PlanDay[] {
+  return [1, 2, 3, 4, 5].map(d => ({
+    weekday: d as Weekday,
+    mode: 'together' as WorkoutMode,
+    workoutTypePrimary: 'gym_strength' as WorkoutTypeId,
+    durationMinutes: 45,
+    environmentPolicy: 'shared' as const,
+  }));
+}
 
 @Component({
   selector: 'app-onboarding',
@@ -112,8 +145,12 @@ import { ExperienceLevel, PrimaryGoal } from '../../core/models';
             />
           </div>
 
-          <button class="btn-primary" (click)="finishWithPartner()" [disabled]="!partnerEmail || loading()">
-            {{ loading() ? 'Setting up...' : 'Invite & Get Started' }}
+          <button class="btn-primary" (click)="goToPlanStep()" [disabled]="!partnerEmail || loading()">
+            Next — Set Up a Plan
+          </button>
+
+          <button class="btn-secondary" (click)="inviteWithoutPlan()" [disabled]="!partnerEmail || loading()">
+            {{ loading() ? 'Setting up...' : 'Invite Without a Plan' }}
           </button>
 
           <button class="btn-skip" (click)="finishWithoutPartner()" [disabled]="loading()">
@@ -126,8 +163,69 @@ import { ExperienceLevel, PrimaryGoal } from '../../core/models';
         </div>
       }
 
-      <!-- Step 3: Invite sent confirmation (inviter only) -->
+      <!-- Step 3: Plan Builder (inviter) -->
       @if (step() === 3) {
+        <div class="step screen-enter">
+          <h2>Build your shared plan</h2>
+          <p class="subtitle">Your partner will see this when they join. Both of you can edit it anytime.</p>
+
+          <div class="form-group">
+            <label>Plan Name</label>
+            <input type="text" [(ngModel)]="planTitle" placeholder="e.g. Week 1 Kickoff" class="input" />
+          </div>
+
+          <div class="form-group">
+            <label>Start Date</label>
+            <input type="date" [(ngModel)]="planStartDate" class="input" />
+          </div>
+
+          <label class="section-label">Daily Schedule</label>
+          <div class="days-list">
+            @for (day of planDays(); track day.weekday) {
+              <div class="day-row">
+                <span class="day-label">{{ weekdayLabel(day.weekday) }}</span>
+                <select class="day-select" [ngModel]="day.mode" (ngModelChange)="setDayMode(day.weekday, $event)">
+                  @for (m of modes; track m.value) {
+                    <option [value]="m.value">{{ m.label }}</option>
+                  }
+                </select>
+                @if (day.mode !== 'rest') {
+                  <select class="day-select" [ngModel]="day.workoutTypePrimary" (ngModelChange)="setDayType(day.weekday, $event)">
+                    @for (t of workoutTypes; track t.value) {
+                      <option [value]="t.value">{{ t.label }}</option>
+                    }
+                  </select>
+                  <input
+                    type="number"
+                    class="duration-input"
+                    [ngModel]="day.durationMinutes"
+                    (ngModelChange)="setDayDuration(day.weekday, $event)"
+                    min="10"
+                    max="180"
+                    step="5"
+                  />
+                  <span class="min-label">min</span>
+                }
+              </div>
+            }
+          </div>
+
+          <button class="btn-primary" (click)="finishWithPlan()" [disabled]="!planTitle.trim() || loading()">
+            {{ loading() ? 'Setting up...' : 'Invite & Send Plan' }}
+          </button>
+
+          <button class="btn-skip" (click)="inviteWithoutPlan()" [disabled]="loading()">
+            Skip plan for now
+          </button>
+
+          @if (error()) {
+            <p class="error-msg">{{ error() }}</p>
+          }
+        </div>
+      }
+
+      <!-- Step 4: Invite sent confirmation (inviter only) -->
+      @if (step() === 4) {
         <div class="step screen-enter">
           <div class="success-hero">
             <span class="success-icon">📨</span>
@@ -144,6 +242,13 @@ import { ExperienceLevel, PrimaryGoal } from '../../core/models';
               {{ copied() ? 'Copied!' : 'Copy message' }}
             </button>
           </div>
+
+          @if (planSent()) {
+            <div class="plan-sent-note">
+              <span class="plan-icon">📋</span>
+              <p>Your partner will see the plan you created when they join — they can edit it anytime.</p>
+            </div>
+          }
 
           <div class="how-it-works">
             <p class="section-label">How it works for them:</p>
@@ -181,7 +286,7 @@ import { ExperienceLevel, PrimaryGoal } from '../../core/models';
     .onboarding-screen {
       min-height: 100vh;
       padding: 24px;
-      max-width: 420px;
+      max-width: 480px;
       margin: 0 auto;
       display: flex;
       flex-direction: column;
@@ -205,6 +310,8 @@ import { ExperienceLevel, PrimaryGoal } from '../../core/models';
       color: #f5f5f5;
       font-size: 16px;
       outline: none;
+      width: 100%;
+      box-sizing: border-box;
       &:focus { border-color: #4ade80; }
     }
     .option-grid {
@@ -244,6 +351,18 @@ import { ExperienceLevel, PrimaryGoal } from '../../core/models';
       margin-top: 8px;
       &:disabled { opacity: 0.4; }
     }
+    .btn-secondary {
+      background: none;
+      border: 1px solid #4ade80;
+      border-radius: 12px;
+      color: #4ade80;
+      padding: 14px;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      min-height: 48px;
+      &:disabled { opacity: 0.4; }
+    }
     .btn-skip {
       background: none;
       border: 1px solid #333;
@@ -253,7 +372,69 @@ import { ExperienceLevel, PrimaryGoal } from '../../core/models';
       font-size: 15px;
       cursor: pointer;
       min-height: 48px;
+      &:disabled { opacity: 0.4; }
     }
+
+    /* Plan builder */
+    .days-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .day-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #1a1a1a;
+      border-radius: 10px;
+      padding: 10px 12px;
+      flex-wrap: wrap;
+    }
+    .day-label {
+      color: #4ade80;
+      font-size: 13px;
+      font-weight: 700;
+      min-width: 32px;
+    }
+    .day-select {
+      background: #2a2a2a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #f5f5f5;
+      padding: 6px 8px;
+      font-size: 13px;
+      outline: none;
+      flex: 1;
+      min-width: 0;
+      &:focus { border-color: #4ade80; }
+    }
+    .duration-input {
+      background: #2a2a2a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #f5f5f5;
+      padding: 6px 8px;
+      font-size: 13px;
+      width: 54px;
+      text-align: center;
+      outline: none;
+      &:focus { border-color: #4ade80; }
+    }
+    .min-label { color: #666; font-size: 12px; }
+
+    /* Plan sent note */
+    .plan-sent-note {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      background: #0a2a15;
+      border: 1px solid #4ade80;
+      border-radius: 12px;
+      padding: 14px 16px;
+      .plan-icon { font-size: 20px; flex-shrink: 0; }
+      p { color: #ccc; font-size: 14px; margin: 0; line-height: 1.5; }
+    }
+
     .step-dots {
       display: flex;
       justify-content: center;
@@ -401,6 +582,7 @@ export class OnboardingComponent implements OnInit {
   loading = signal(false);
   error = signal('');
   copied = signal(false);
+  planSent = signal(false);
 
   // Invite detection
   pendingInvite = signal<{ pairId: string; inviteId: string } | null>(null);
@@ -408,6 +590,14 @@ export class OnboardingComponent implements OnInit {
   inviteAccepted = signal(false);
 
   totalSteps = signal([1, 2]);
+
+  // Plan builder state
+  planTitle = '';
+  planStartDate = new Date().toISOString().split('T')[0];
+  planDays = signal<PlanDay[]>(defaultDays());
+
+  readonly workoutTypes = WORKOUT_TYPES;
+  readonly modes = MODES;
 
   experienceLevels = [
     { value: 'beginner' as ExperienceLevel, label: 'Beginner', emoji: '🌱' },
@@ -424,7 +614,6 @@ export class OnboardingComponent implements OnInit {
   ];
 
   async ngOnInit(): Promise<void> {
-    // Check if this user was invited by someone
     const email = this.auth.currentUser()?.email;
     if (email) {
       try {
@@ -452,6 +641,28 @@ export class OnboardingComponent implements OnInit {
     this.audio.play('tap-secondary');
   }
 
+  weekdayLabel(weekday: Weekday): string {
+    return WEEKDAY_LABELS[weekday];
+  }
+
+  setDayMode(weekday: Weekday, mode: WorkoutMode): void {
+    this.planDays.update(days =>
+      days.map(d => d.weekday === weekday ? { ...d, mode } : d)
+    );
+  }
+
+  setDayType(weekday: Weekday, workoutTypePrimary: WorkoutTypeId): void {
+    this.planDays.update(days =>
+      days.map(d => d.weekday === weekday ? { ...d, workoutTypePrimary } : d)
+    );
+  }
+
+  setDayDuration(weekday: Weekday, durationMinutes: number): void {
+    this.planDays.update(days =>
+      days.map(d => d.weekday === weekday ? { ...d, durationMinutes } : d)
+    );
+  }
+
   async goToStep2(): Promise<void> {
     this.audio.play('tap-primary');
     try {
@@ -463,7 +674,6 @@ export class OnboardingComponent implements OnInit {
       this.profileCreated.set(true);
       this.step.set(2);
 
-      // If invited, auto-accept the invite
       if (this.pendingInvite()) {
         await this.acceptPendingInvite();
       }
@@ -476,10 +686,14 @@ export class OnboardingComponent implements OnInit {
   private async acceptPendingInvite(): Promise<void> {
     const invite = this.pendingInvite()!;
     try {
-      await this.pairService.acceptInvite(invite.pairId, invite.inviteId);
+      const result = await this.pairService.acceptInvite(invite.pairId, invite.inviteId);
       this.inviteAccepted.set(true);
       this.audio.play('tap-primary');
-      // Brief pause to show the success state, then navigate
+
+      if (result.hadProposedPlan) {
+        localStorage.setItem('showPlanNotification', '1');
+      }
+
       setTimeout(() => this.router.navigate(['/today']), 1500);
     } catch (err: unknown) {
       this.audio.play('error');
@@ -492,14 +706,42 @@ export class OnboardingComponent implements OnInit {
     await this.acceptPendingInvite();
   }
 
-  async finishWithPartner(): Promise<void> {
+  goToPlanStep(): void {
+    this.audio.play('tap-primary');
+    this.totalSteps.set([1, 2, 3, 4]);
+    this.step.set(3);
+  }
+
+  async inviteWithoutPlan(): Promise<void> {
     this.loading.set(true);
     this.error.set('');
     try {
       await this.pairService.createPairAndInvite(this.partnerEmail);
       this.audio.play('tap-primary');
-      this.totalSteps.set([1, 2, 3]);
-      this.step.set(3);
+      this.planSent.set(false);
+      this.totalSteps.set([1, 2, 4]);
+      this.step.set(4);
+    } catch (err: unknown) {
+      this.audio.play('error');
+      this.error.set(err instanceof Error ? err.message : 'Failed to send invite');
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  async finishWithPlan(): Promise<void> {
+    this.loading.set(true);
+    this.error.set('');
+    try {
+      const proposedPlan: ProposedPlan = {
+        title: this.planTitle.trim(),
+        startDate: this.planStartDate,
+        days: this.planDays(),
+      };
+      await this.pairService.createPairAndInvite(this.partnerEmail, proposedPlan);
+      this.audio.play('tap-primary');
+      this.planSent.set(true);
+      this.step.set(4);
     } catch (err: unknown) {
       this.audio.play('error');
       this.error.set(err instanceof Error ? err.message : 'Failed to send invite');
@@ -521,7 +763,6 @@ export class OnboardingComponent implements OnInit {
       this.audio.play('tap-primary');
       setTimeout(() => this.copied.set(false), 2000);
     } catch {
-      // Fallback: select text for manual copy
       this.copied.set(false);
     }
   }

@@ -2,12 +2,14 @@ import { Injectable, inject, signal } from '@angular/core';
 import { where, Timestamp } from '@angular/fire/firestore';
 import { AuthService } from './auth.service';
 import { FirestoreService } from './firestore.service';
-import { PairDoc, PairInviteDoc } from '../models';
+import { PairDoc, PairInviteDoc, ProposedPlan } from '../models';
+import { PlanService } from './plan.service';
 
 @Injectable({ providedIn: 'root' })
 export class PairService {
   private auth = inject(AuthService);
   private fs = inject(FirestoreService);
+  private planService = inject(PlanService);
 
   readonly activePair = signal<PairDoc | null>(null);
   readonly partnerUid = signal<string | null>(null);
@@ -40,7 +42,7 @@ export class PairService {
     this.unsubscribe = null;
   }
 
-  async createPairAndInvite(invitedEmail: string): Promise<string> {
+  async createPairAndInvite(invitedEmail: string, proposedPlan?: ProposedPlan): Promise<string> {
     const uid = this.auth.uid();
     if (!uid) throw new Error('Not authenticated');
 
@@ -60,7 +62,7 @@ export class PairService {
 
     const inviteId = crypto.randomUUID();
     const inviteRef = this.fs.doc<PairInviteDoc>(`pairs/${pairId}/invites/${inviteId}`);
-    batch.set(inviteRef, {
+    const inviteData: PairInviteDoc = {
       id: inviteId,
       pairId,
       invitedEmail: invitedEmail.toLowerCase().trim(),
@@ -68,24 +70,30 @@ export class PairService {
       status: 'pending' as const,
       expiresAt: Timestamp.fromDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)),
       createdAt: Timestamp.now(),
-    });
+    };
+    if (proposedPlan) {
+      inviteData.proposedPlan = proposedPlan;
+    }
+    batch.set(inviteRef, inviteData);
 
     await batch.commit();
     return pairId;
   }
 
-  async acceptInvite(pairId: string, inviteId: string): Promise<void> {
+  async acceptInvite(pairId: string, inviteId: string): Promise<{ hadProposedPlan: boolean }> {
     const uid = this.auth.uid();
     if (!uid) throw new Error('Not authenticated');
+
+    const [pairDoc, inviteDoc] = await Promise.all([
+      this.fs.get<PairDoc>(`pairs/${pairId}`),
+      this.fs.get<PairInviteDoc>(`pairs/${pairId}/invites/${inviteId}`),
+    ]);
 
     const batch = this.fs.batch();
 
     batch.update(this.fs.doc(`pairs/${pairId}`), {
       userBId: uid,
-      userIds: [
-        (await this.fs.get<PairDoc>(`pairs/${pairId}`))?.userAId,
-        uid,
-      ],
+      userIds: [pairDoc?.userAId, uid],
       status: 'active',
     });
 
@@ -94,6 +102,18 @@ export class PairService {
     });
 
     await batch.commit();
+
+    if (inviteDoc?.proposedPlan) {
+      await this.planService.createPlan(pairId, {
+        title: inviteDoc.proposedPlan.title,
+        startDate: inviteDoc.proposedPlan.startDate,
+        days: inviteDoc.proposedPlan.days,
+        active: true,
+      });
+      return { hadProposedPlan: true };
+    }
+
+    return { hadProposedPlan: false };
   }
 
   async getPendingInviteForEmail(email: string): Promise<{ pairId: string; inviteId: string } | null> {

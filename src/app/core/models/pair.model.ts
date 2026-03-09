@@ -1,7 +1,14 @@
 import { Timestamp } from 'firebase/firestore';
+import { PlanDay } from './plan.model';
 
 export type PairStatus = 'pending' | 'active' | 'paused';
 export type InviteStatus = 'pending' | 'accepted' | 'expired' | 'revoked';
+
+export interface ProposedPlan {
+  title: string;
+  startDate: string; // ISO date "2026-03-10"
+  days: PlanDay[];
+}
 
 export interface PairDoc {
   id: string;
@@ -21,4 +28,5 @@ export interface PairInviteDoc {
   status: InviteStatus;
   expiresAt: Timestamp;
   createdAt: Timestamp;
+  proposedPlan?: ProposedPlan;
 }
