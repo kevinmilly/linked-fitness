@@ -247,6 +247,23 @@ export class EqualizationService {
     return undefined;
   }
 
+  getAlternatives(
+    exerciseId: string,
+    exercises: ExerciseDoc[],
+    equipment: string[]
+  ): ExerciseDoc[] {
+    const target = exercises.find(e => e.id === exerciseId);
+    if (!target) return [];
+
+    return exercises
+      .filter(e =>
+        e.id !== exerciseId &&
+        e.movementPattern === target.movementPattern &&
+        e.equipmentTags.some(eq => equipment.includes(eq))
+      )
+      .slice(0, 5);
+  }
+
   private intersectArrays<T>(a: T[], b: T[]): T[] {
     const setB = new Set(b);
     const result = a.filter(item => setB.has(item));

@@ -76,6 +76,13 @@ interface WeekGroup {
                         </div>
                       }
                     }
+                    @if (session.reactions?.length) {
+                      <div style="margin-top: 8px; display: flex; gap: 4px; flex-wrap: wrap;">
+                        @for (r of session.reactions; track r.emoji + r.fromUid) {
+                          <span style="background: #0f0f0f; border: 1px solid #333; border-radius: 12px; padding: 2px 8px; font-size: 14px;">{{ r.emoji }}</span>
+                        }
+                      </div>
+                    }
                   </div>
                 }
               </div>

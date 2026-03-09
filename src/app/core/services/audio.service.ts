@@ -16,6 +16,7 @@ export type SoundId =
   | 'partner-done'
   | 'nudge-sent'
   | 'nudge-received'
+  | 'reaction-sent'
   | 'error';
 
 interface SoundConfig {
@@ -40,6 +41,7 @@ const SOUND_MAP: Record<SoundId, SoundConfig> = {
   'partner-done':      { file: 'nudge-received.mp3',                 volume: 0.8, playbackRate: 1.0 },
   'nudge-sent':        { file: 'nudge-sent.mp3',                     volume: 1.0, playbackRate: 1.0 },
   'nudge-received':    { file: 'nudge-received.mp3',                 volume: 1.0, playbackRate: 1.0 },
+  'reaction-sent':     { file: 'nudge-sent.mp3',                     volume: 0.8, playbackRate: 1.2 },
   'error':             { file: 'error.mp3',                          volume: 1.0, playbackRate: 1.0 },
 };
 

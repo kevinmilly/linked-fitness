@@ -4,19 +4,25 @@ import { Timestamp } from '@angular/fire/firestore';
 import { AuthService } from '../../core/services/auth.service';
 import { FirestoreService } from '../../core/services/firestore.service';
 import { PairService } from '../../core/services/pair.service';
+import { SessionService } from '../../core/services/session.service';
+import { EqualizationService } from '../../core/services/equalization.service';
 import { PresenceService } from '../../core/services/presence.service';
 import { AudioService } from '../../core/services/audio.service';
 import { StreakService } from '../../core/services/streak.service';
-import { SessionDoc, SessionExercise, CompletionState } from '../../core/models';
+import { SessionDoc, SessionExercise, CompletionState, DifficultyAdjustment } from '../../core/models';
+import { ExerciseDoc } from '../../core/models/exercise.model';
 import { UserService } from '../../core/services/user.service';
+import { SEED_EXERCISES } from '../../core/data/exercises';
+import { InsightsService, WorkoutInsight } from '../../core/services/insights.service';
+import { InsightCardComponent } from '../../shared/components/insight-card.component';
 import { SwipeCompleteDirective } from '../../shared/directives/swipe-complete.directive';
 
-type WorkoutScreen = 'overview' | 'ready' | 'countdown' | 'active' | 'complete' | 'awaiting';
+type WorkoutScreen = 'overview' | 'ready' | 'countdown' | 'active' | 'complete' | 'awaiting' | 'insights';
 
 @Component({
   selector: 'app-workout',
   standalone: true,
-  imports: [SwipeCompleteDirective],
+  imports: [SwipeCompleteDirective, InsightCardComponent],
   template: `
     <!-- OVERVIEW -->
     @if (screen() === 'overview') {
@@ -35,10 +41,27 @@ type WorkoutScreen = 'overview' | 'ready' | 'countdown' | 'active' | 'complete' 
           </div>
         }
 
+        <!-- Difficulty toggle -->
+        @if (!myCompleted() && activeTab() === 'mine') {
+          <div class="difficulty-row">
+            @for (level of difficultyLevels; track level.value) {
+              <button
+                class="diff-btn"
+                [class.active]="currentDifficulty() === level.value"
+                (click)="setDifficulty(level.value)"
+              >{{ level.label }}</button>
+            }
+          </div>
+        }
+
         <!-- Exercise List -->
         <div class="exercise-list">
           @for (ex of displayExercises(); track ex.exerciseId; let i = $index) {
-            <div class="exercise-card">
+            <div
+              class="exercise-card"
+              [class.swappable]="!myCompleted() && activeTab() === 'mine'"
+              (click)="!myCompleted() && activeTab() === 'mine' ? openSwapSheet(ex) : null"
+            >
               <div class="ex-number">{{ i + 1 }}</div>
               <div class="ex-info">
                 <div class="ex-name">{{ ex.variantName || ex.name }}</div>
@@ -47,9 +70,33 @@ type WorkoutScreen = 'overview' | 'ready' | 'countdown' | 'active' | 'complete' 
                   @else if (ex.durationSeconds) { <span>{{ ex.durationSeconds }}s</span> }
                 </div>
               </div>
+              @if (!myCompleted() && activeTab() === 'mine') {
+                <span class="swap-hint">Swap</span>
+              }
             </div>
           }
         </div>
+
+        <!-- Swap bottom sheet -->
+        @if (swapSheetOpen()) {
+          <div class="swap-overlay" (click)="closeSwapSheet()">
+            <div class="swap-sheet" (click)="$event.stopPropagation()">
+              <div class="swap-header">
+                <span>Swap exercise</span>
+                <button class="swap-close" (click)="closeSwapSheet()">✕</button>
+              </div>
+              @if (swapAlternatives().length === 0) {
+                <p class="swap-empty">No alternatives available for this movement pattern.</p>
+              } @else {
+                @for (alt of swapAlternatives(); track alt.id) {
+                  <button class="swap-option" (click)="confirmSwap(alt)">
+                    {{ alt.name }}
+                  </button>
+                }
+              }
+            </div>
+          </div>
+        }
 
         <!-- Work/Rest info -->
         @if (myPayload()?.workRestScheme; as scheme) {
@@ -203,6 +250,18 @@ type WorkoutScreen = 'overview' | 'ready' | 'countdown' | 'active' | 'complete' 
         <button class="btn-secondary" (click)="goBack()">Back to Today</button>
       </div>
     }
+
+    <!-- INSIGHTS -->
+    @if (screen() === 'insights') {
+      <div class="ws center-screen screen-enter">
+        <div class="complete-icon">✓</div>
+        <h2 class="complete-title">Both Done!</h2>
+        @if (workoutInsight()) {
+          <app-insight-card [insight]="workoutInsight()!" />
+        }
+        <button class="btn-primary" style="margin-top: 16px;" (click)="goBack()">Back to Today</button>
+      </div>
+    }
   `,
   styles: [`
     .ws { padding: 20px 16px 100px; }
@@ -321,6 +380,44 @@ type WorkoutScreen = 'overview' | 'ready' | 'countdown' | 'active' | 'complete' 
     .timer-display { font-size: 48px; font-weight: 800; color: #f5f5f5; font-variant-numeric: tabular-nums; }
     .timer-round { color: #888; font-size: 13px; margin-top: 4px; }
 
+    /* Difficulty toggle */
+    .difficulty-row {
+      display: flex; gap: 8px; margin-bottom: 16px;
+    }
+    .diff-btn {
+      flex: 1; background: #1a1a1a; border: 1px solid #333; border-radius: 10px;
+      padding: 10px; color: #888; font-size: 13px; font-weight: 600; cursor: pointer;
+      min-height: 48px;
+      &.active { border-color: #4ade80; color: #4ade80; background: #0a2a15; }
+    }
+
+    /* Swap */
+    .swappable { cursor: pointer; }
+    .swap-hint { color: #4ade80; font-size: 12px; font-weight: 600; flex-shrink: 0; }
+    .swap-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100;
+      display: flex; align-items: flex-end; justify-content: center;
+    }
+    .swap-sheet {
+      background: #1a1a1a; border-radius: 16px 16px 0 0; padding: 20px 16px 32px;
+      width: 100%; max-width: 480px; max-height: 60vh; overflow-y: auto;
+    }
+    .swap-header {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;
+      font-size: 16px; font-weight: 600; color: #f5f5f5;
+    }
+    .swap-close {
+      background: none; border: none; color: #888; font-size: 20px; cursor: pointer;
+      min-width: 48px; min-height: 48px; display: flex; align-items: center; justify-content: center;
+    }
+    .swap-option {
+      width: 100%; background: #0f0f0f; border: 1px solid #333; border-radius: 12px;
+      padding: 14px 16px; color: #f5f5f5; font-size: 15px; font-weight: 500;
+      cursor: pointer; margin-bottom: 8px; text-align: left; min-height: 48px;
+    }
+    .swap-option:active { background: #0a2a15; border-color: #4ade80; }
+    .swap-empty { color: #888; font-size: 14px; text-align: center; padding: 16px 0; }
+
     /* Active list */
     .active-list { margin-bottom: 24px; }
 
@@ -365,12 +462,18 @@ export class WorkoutComponent implements OnInit, OnDestroy {
   private authService = inject(AuthService);
   private fs = inject(FirestoreService);
   private pairService = inject(PairService);
+  private sessionService = inject(SessionService);
+  private equalizationService = inject(EqualizationService);
   readonly presence = inject(PresenceService);
   private audio = inject(AudioService);
   private streakService = inject(StreakService);
   private userService = inject(UserService);
+  private insightsService = inject(InsightsService);
 
   readonly partnerInitial = signal('P');
+
+  // Exercise library (seed data mapped with IDs)
+  private readonly exerciseLibrary: ExerciseDoc[] = SEED_EXERCISES.map((e, i) => ({ ...e, id: `ex-${i}` })) as ExerciseDoc[];
 
   // State
   screen = signal<WorkoutScreen>('overview');
@@ -380,6 +483,20 @@ export class WorkoutComponent implements OnInit, OnDestroy {
   effortRating = signal<number | null>(null);
   submitting = signal(false);
   nudgeSent = signal(false);
+
+  // Swap state
+  swapSheetOpen = signal(false);
+  swapTargetExercise = signal<SessionExercise | null>(null);
+  swapAlternatives = signal<ExerciseDoc[]>([]);
+  currentDifficulty = signal<DifficultyAdjustment>('normal');
+
+  workoutInsight = signal<WorkoutInsight | null>(null);
+
+  readonly difficultyLevels = [
+    { value: 'easier' as DifficultyAdjustment, label: 'Easier' },
+    { value: 'normal' as DifficultyAdjustment, label: 'Normal' },
+    { value: 'harder' as DifficultyAdjustment, label: 'Harder' },
+  ];
 
   // Timer state
   timerActive = signal(false);
@@ -486,6 +603,64 @@ export class WorkoutComponent implements OnInit, OnDestroy {
     this.stopTimer();
     this.stopCountdown();
     this.presence.stopWatching();
+  }
+
+  openSwapSheet(exercise: SessionExercise): void {
+    this.audio.play('tap-secondary');
+    this.swapTargetExercise.set(exercise);
+    const userProfile = this.userService.profile();
+    const equipment = userProfile?.availableEquipment ?? ['none'];
+    const alternatives = this.equalizationService.getAlternatives(
+      exercise.exerciseId, this.exerciseLibrary, equipment
+    );
+    this.swapAlternatives.set(alternatives);
+    this.swapSheetOpen.set(true);
+  }
+
+  closeSwapSheet(): void {
+    this.swapSheetOpen.set(false);
+    this.swapTargetExercise.set(null);
+  }
+
+  async confirmSwap(alt: ExerciseDoc): Promise<void> {
+    this.audio.play('tap-primary');
+    const target = this.swapTargetExercise();
+    const pairId = this.pairService.activePair()?.id;
+    const sessionId = this.session()?.id;
+    if (!target || !pairId || !sessionId) return;
+
+    await this.sessionService.swapExercise(pairId, sessionId, target.exerciseId, {
+      exerciseId: alt.id,
+      variantId: '',
+      name: alt.name,
+      variantName: alt.name,
+      sets: target.sets,
+      reps: target.reps,
+      durationSeconds: target.durationSeconds,
+      coachingCues: alt.coachingCues,
+    });
+
+    // Refresh local session
+    const refreshed = await this.fs.get<SessionDoc>(`pairs/${pairId}/sessions/${sessionId}`);
+    if (refreshed) this.session.set(refreshed);
+
+    this.closeSwapSheet();
+  }
+
+  async setDifficulty(level: DifficultyAdjustment): Promise<void> {
+    if (this.currentDifficulty() === level) return;
+    this.audio.play('tap-secondary');
+    this.currentDifficulty.set(level);
+
+    const pairId = this.pairService.activePair()?.id;
+    const sessionId = this.session()?.id;
+    if (!pairId || !sessionId) return;
+
+    await this.sessionService.adjustDifficulty(pairId, sessionId, level);
+
+    // Refresh local session
+    const refreshed = await this.fs.get<SessionDoc>(`pairs/${pairId}/sessions/${sessionId}`);
+    if (refreshed) this.session.set(refreshed);
   }
 
   goBack(): void {
@@ -733,13 +908,19 @@ export class WorkoutComponent implements OnInit, OnDestroy {
     this.audio.play('streak-advance');
 
     const pairId = this.pairService.activePair()?.id;
+    const uid = this.authService.uid();
     if (pairId) {
       await this.streakService.advanceStreaksOnSharedComplete(pairId);
+
+      // Load insights
+      if (uid) {
+        try {
+          const insight = await this.insightsService.getMonthlyInsights(pairId, uid);
+          this.workoutInsight.set(insight);
+        } catch { /* ignore */ }
+      }
     }
 
-    // Brief celebration then go back
-    setTimeout(() => {
-      this.router.navigate(['/today']);
-    }, 2500);
+    this.screen.set('insights');
   }
 }

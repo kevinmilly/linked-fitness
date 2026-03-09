@@ -7,7 +7,8 @@ export type NotificationType =
   | 'streak_expiring'
   | 'medal_close'
   | 'nudge_received'
-  | 'weekly_recap';
+  | 'weekly_recap'
+  | 'reaction_received';
 
 export interface InAppNotification {
   id: string;

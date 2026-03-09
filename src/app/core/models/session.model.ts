@@ -24,6 +24,7 @@ export interface SessionDoc {
   graceWindowExpiresAt?: Timestamp;
   createdAt: Timestamp;
   users: Record<string, SessionUserData>;
+  reactions?: SessionReaction[];
 }
 
 export interface SessionUserData {
@@ -35,6 +36,8 @@ export interface SessionUserData {
   effortRating?: number;
   sorenessRating?: number;
   notes?: string;
+  swaps?: ExerciseSwap[];
+  difficultyAdjustment?: DifficultyAdjustment;
 }
 
 export interface WorkoutPayload {
@@ -60,4 +63,18 @@ export interface WorkRestScheme {
   workSeconds: number;
   restSeconds: number;
   rounds: number;
+}
+
+export interface ExerciseSwap {
+  originalExerciseId: string;
+  newExerciseId: string;
+  reason?: 'injury' | 'equipment' | 'preference';
+}
+
+export type DifficultyAdjustment = 'easier' | 'normal' | 'harder';
+
+export interface SessionReaction {
+  emoji: string;
+  fromUid: string;
+  createdAt: Timestamp;
 }

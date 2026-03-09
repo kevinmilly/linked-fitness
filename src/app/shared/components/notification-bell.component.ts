@@ -188,6 +188,7 @@ export class NotificationBellComponent {
     medal_close: '🏅',
     nudge_received: '👋',
     weekly_recap: '📊',
+    reaction_received: '🎉',
   };
 
   togglePanel(): void {

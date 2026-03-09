@@ -11,6 +11,9 @@ import { AudioService } from '../../core/services/audio.service';
 import { FirestoreService } from '../../core/services/firestore.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { NotificationBellComponent } from '../../shared/components/notification-bell.component';
+import { ReactionPickerComponent } from '../../shared/components/reaction-picker.component';
+import { InsightsService, WorkoutInsight } from '../../core/services/insights.service';
+import { RestDayCardComponent } from '../../shared/components/rest-day-card.component';
 import { SessionDoc, UserDoc } from '../../core/models';
 import { SEED_EXERCISES, SEED_VARIANTS } from '../../core/data/exercises';
 import { ExerciseDoc, ExerciseVariantDoc } from '../../core/models';
@@ -18,7 +21,7 @@ import { ExerciseDoc, ExerciseVariantDoc } from '../../core/models';
 @Component({
   selector: 'app-today',
   standalone: true,
-  imports: [NotificationBellComponent],
+  imports: [NotificationBellComponent, ReactionPickerComponent, RestDayCardComponent],
   template: `
     <div class="today-screen screen-enter">
       <header class="today-header">
@@ -51,21 +54,35 @@ import { ExerciseDoc, ExerciseVariantDoc } from '../../core/models';
         </div>
       }
 
-      <!-- No plan created state -->
+      <!-- No plan / no session state -->
       @else if (!todaySession()) {
-        <div class="empty-state">
-          <p class="empty-title">No workout planned for today</p>
-          <p class="empty-subtitle">Create a weekly plan to start training together.</p>
-          <button class="btn-primary" (click)="goToPlan()">Build a Plan</button>
-        </div>
+        @if (planService.activePlan()) {
+          <!-- Plan exists but no session today = rest day -->
+          <app-rest-day-card
+            [partnerActivity]="partnerLastActivity()"
+            [weeklyCompleted]="weeklyWorkoutCount()"
+            [weeklyGoal]="5"
+            (mobilityTapped)="goToPlan()"
+          />
+        } @else {
+          <div class="empty-state">
+            <p class="empty-title">No workout planned for today</p>
+            <p class="empty-subtitle">Create a weekly plan to start training together.</p>
+            <button class="btn-primary" (click)="goToPlan()">Build a Plan</button>
+          </div>
+        }
       }
 
       <!-- Rest day state -->
       @else if (todaySession()!.mode === 'rest') {
-        <div class="rest-card">
-          <p class="rest-title">Rest Day</p>
-          <p class="rest-subtitle">Recovery is part of the plan.</p>
-          <div class="streak-display">Streak: {{ streakCount() }} days</div>
+        <app-rest-day-card
+          [partnerActivity]="partnerLastActivity()"
+          [weeklyCompleted]="weeklyWorkoutCount()"
+          [weeklyGoal]="5"
+          (mobilityTapped)="goToPlan()"
+        />
+        <div class="streak-display-row">
+          <span class="streak-display">Streak: {{ streakCount() }} days 🔥</span>
         </div>
       }
 
@@ -108,6 +125,23 @@ import { ExerciseDoc, ExerciseVariantDoc } from '../../core/models';
           </button>
         </div>
 
+        <!-- Reactions display -->
+        @if (sessionReactions().length > 0) {
+          <div class="reactions-display">
+            @for (r of sessionReactions(); track r.emoji + r.fromUid) {
+              <span class="reaction-badge">{{ r.emoji }}</span>
+            }
+          </div>
+        }
+
+        <!-- Reaction picker when partner completed -->
+        @if (partnerCompleted()) {
+          <app-reaction-picker
+            [sentEmojis]="mySentReactionEmojis()"
+            (reactionSelected)="sendReaction($event)"
+          />
+        }
+
         <!-- North Star medal target -->
         <div class="north-star-card">
           <p class="ns-label">Next milestone</p>
@@ -116,6 +150,11 @@ import { ExerciseDoc, ExerciseVariantDoc } from '../../core/models';
             <div class="ns-fill" [style.width.%]="northStarProgress()"></div>
           </div>
         </div>
+
+        <!-- Insight strip -->
+        @if (insightStrip()) {
+          <div class="insight-strip">{{ insightStrip() }}</div>
+        }
       }
 
       <!-- Finish Setup card (deferred onboarding) -->
@@ -245,6 +284,40 @@ import { ExerciseDoc, ExerciseVariantDoc } from '../../core/models';
       transition: width 300ms ease;
     }
 
+    .streak-display-row {
+      text-align: center;
+      margin-top: 16px;
+    }
+    .streak-display {
+      color: #4ade80;
+      font-weight: 600;
+      font-size: 15px;
+    }
+
+    .insight-strip {
+      background: #1a1a1a;
+      border-radius: 10px;
+      padding: 12px 16px;
+      color: #888;
+      font-size: 13px;
+      text-align: center;
+      margin-bottom: 16px;
+    }
+
+    .reactions-display {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .reaction-badge {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 16px;
+      padding: 4px 10px;
+      font-size: 18px;
+    }
+
     .setup-card {
       background: #1a1a2a;
       border: 1px solid #333;
@@ -283,17 +356,21 @@ export class TodayComponent implements OnInit, OnDestroy {
   private fs = inject(FirestoreService);
   private audio = inject(AudioService);
   private sessionService = inject(SessionService);
-  private planService = inject(PlanService);
   private streakService = inject(StreakService);
   private notificationService = inject(NotificationService);
+  private insightsService = inject(InsightsService);
   readonly user = inject(UserService);
   readonly pair = inject(PairService);
+  readonly planService = inject(PlanService);
   readonly presence = inject(PresenceService);
 
   readonly todaySession = computed(() => this.sessionService.todaySession());
   northStarProgress = signal(33);
   sessionGenerating = signal(false);
   loading = signal(true);
+  insightStrip = signal('');
+  partnerLastActivity = signal('');
+  weeklyWorkoutCount = signal(0);
 
   readonly streakCount = computed(() =>
     this.streakService.getSharedStreak('shared_completion')?.currentCount ?? 0
@@ -329,6 +406,18 @@ export class TodayComponent implements OnInit, OnDestroy {
     const uid = this.auth.uid();
     if (!session || !uid) return false;
     return session.users[uid]?.completionState === 'completed';
+  });
+
+  readonly sessionReactions = computed(() => {
+    return this.todaySession()?.reactions ?? [];
+  });
+
+  readonly mySentReactionEmojis = computed(() => {
+    const uid = this.auth.uid();
+    if (!uid) return [];
+    return this.sessionReactions()
+      .filter(r => r.fromUid === uid)
+      .map(r => r.emoji);
   });
 
   readonly partnerCompleted = computed(() => {
@@ -374,7 +463,10 @@ export class TodayComponent implements OnInit, OnDestroy {
       this.notificationService.watchNotifications(uid);
     }
     // Resolve loading after a brief wait for initial data
-    setTimeout(() => this.loading.set(false), 1500);
+    setTimeout(() => {
+      this.loading.set(false);
+      this.loadInsightStrip();
+    }, 1500);
   }
 
   ngOnDestroy(): void {
@@ -430,6 +522,20 @@ export class TodayComponent implements OnInit, OnDestroy {
     return session.users[uid]?.assignedWorkoutPayload?.totalDurationMinutes ?? 30;
   }
 
+  async sendReaction(emoji: string): Promise<void> {
+    const session = this.todaySession();
+    const pairData = this.pair.activePair();
+    if (!session || !pairData) return;
+
+    await this.sessionService.addReaction(pairData.id, session.id, emoji);
+
+    // Notify partner
+    const partnerUid = this.pair.partnerUid();
+    if (partnerUid) {
+      this.notificationService.createNotification(partnerUid, pairData.id, 'reaction_received');
+    }
+  }
+
   openWorkout(): void {
     const session = this.todaySession();
     if (!session) return;
@@ -445,6 +551,44 @@ export class TodayComponent implements OnInit, OnDestroy {
   goToPlan(): void {
     this.audio.play('tap-primary');
     this.router.navigate(['/plan']);
+  }
+
+  private async loadInsightStrip(): Promise<void> {
+    const pairId = this.pair.activePair()?.id;
+    const uid = this.auth.uid();
+    if (!pairId || !uid) return;
+
+    try {
+      const insight = await this.insightsService.getMonthlyInsights(pairId, uid);
+      const parts: string[] = [];
+      if (insight.totalWorkoutsThisMonth > 0) parts.push(`${insight.totalWorkoutsThisMonth} workouts this month`);
+      if (insight.currentStreak > 0) parts.push(`🔥 ${insight.currentStreak}-day streak`);
+      if (parts.length > 0) this.insightStrip.set(parts.join(' · '));
+
+      // Weekly count for rest day card
+      const now = new Date();
+      const weekStart = new Date(now);
+      weekStart.setDate(now.getDate() - now.getDay());
+      const weekSessions = await this.sessionService.getSessionsForDateRange(
+        pairId, weekStart.toISOString().split('T')[0], now.toISOString().split('T')[0]
+      );
+      this.weeklyWorkoutCount.set(
+        weekSessions.filter(s => s.users[uid]?.completionState === 'completed').length
+      );
+
+      // Partner last activity
+      const partnerUid = this.pair.partnerUid();
+      if (partnerUid) {
+        const partnerSession = weekSessions
+          .filter(s => s.users[partnerUid]?.completionState === 'completed')
+          .sort((a, b) => b.scheduledDate.localeCompare(a.scheduledDate))[0];
+        if (partnerSession) {
+          const partnerProfile = await this.user.getProfile(partnerUid);
+          const name = partnerProfile?.displayName?.split(' ')[0] ?? 'Partner';
+          this.partnerLastActivity.set(`${name} completed a workout on ${partnerSession.scheduledDate}`);
+        }
+      }
+    } catch { /* ignore */ }
   }
 
   goToSettings(): void {

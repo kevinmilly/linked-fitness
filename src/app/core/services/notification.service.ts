@@ -80,6 +80,8 @@ export class NotificationService {
         return { title: 'Nudge Received', body: 'Your partner gave you a nudge. Time to move!' };
       case 'weekly_recap':
         return { title: 'Weekly Recap', body: 'Check out how you and your partner did this week.' };
+      case 'reaction_received':
+        return { title: 'Reaction Received', body: 'Your partner reacted to your workout!' };
     }
   }
 }

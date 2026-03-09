@@ -1,9 +1,9 @@
 import { Injectable, inject, signal, DestroyRef } from '@angular/core';
-import { Timestamp, where, orderBy } from '@angular/fire/firestore';
+import { Timestamp, where, orderBy, arrayUnion } from '@angular/fire/firestore';
 import { FirestoreService } from './firestore.service';
 import { AuthService } from './auth.service';
 import { EqualizationService } from './equalization.service';
-import { SessionDoc, SessionStatus, CompletionState } from '../models/session.model';
+import { SessionDoc, SessionStatus, CompletionState, SessionReaction, DifficultyAdjustment } from '../models/session.model';
 import { PlanDoc } from '../models/plan.model';
 import { UserDoc } from '../models/user.model';
 import { ExerciseDoc, ExerciseVariantDoc } from '../models/exercise.model';
@@ -182,6 +182,116 @@ export class SessionService {
       where('scheduledDate', '<=', endDate),
       orderBy('scheduledDate', 'asc')
     );
+  }
+
+  async swapExercise(
+    pairId: string,
+    sessionId: string,
+    originalExerciseId: string,
+    newExercise: { exerciseId: string; variantId: string; name: string; variantName: string; sets?: number; reps?: number; durationSeconds?: number; coachingCues?: string[] }
+  ): Promise<void> {
+    const uid = this.auth.uid();
+    if (!uid) return;
+
+    const path = `pairs/${pairId}/sessions/${sessionId}`;
+    const session = await this.fs.get<SessionDoc>(path);
+    if (!session) return;
+
+    const userData = session.users[uid];
+    if (!userData) return;
+
+    const exercises = userData.assignedWorkoutPayload.exercises.map(ex =>
+      ex.exerciseId === originalExerciseId
+        ? { ...newExercise, completed: false }
+        : ex
+    );
+
+    const swaps = [...(userData.swaps ?? []), { originalExerciseId, newExerciseId: newExercise.exerciseId }];
+
+    await this.fs.update(path, {
+      [`users.${uid}.assignedWorkoutPayload.exercises`]: exercises,
+      [`users.${uid}.swaps`]: swaps,
+    } as Record<string, unknown>);
+
+    // Optimistic update
+    const current = this.todaySession();
+    if (current && current.id === sessionId) {
+      const updated = { ...current };
+      updated.users = { ...updated.users };
+      updated.users[uid] = {
+        ...updated.users[uid],
+        assignedWorkoutPayload: { ...updated.users[uid].assignedWorkoutPayload, exercises },
+        swaps,
+      };
+      this.todaySession.set(updated);
+    }
+  }
+
+  async adjustDifficulty(
+    pairId: string,
+    sessionId: string,
+    adjustment: DifficultyAdjustment
+  ): Promise<void> {
+    const uid = this.auth.uid();
+    if (!uid) return;
+
+    const path = `pairs/${pairId}/sessions/${sessionId}`;
+    const session = await this.fs.get<SessionDoc>(path);
+    if (!session) return;
+
+    const userData = session.users[uid];
+    if (!userData) return;
+
+    const factor = adjustment === 'easier' ? 0.75 : adjustment === 'harder' ? 1.25 : 1;
+    const exercises = userData.assignedWorkoutPayload.exercises.map(ex => {
+      const adjusted = { ...ex };
+      if (adjusted.reps) adjusted.reps = Math.max(1, Math.round(adjusted.reps * factor));
+      if (adjusted.sets && adjustment === 'easier') adjusted.sets = Math.max(1, adjusted.sets - 1);
+      if (adjusted.sets && adjustment === 'harder') adjusted.sets = adjusted.sets + 1;
+      return adjusted;
+    });
+
+    await this.fs.update(path, {
+      [`users.${uid}.assignedWorkoutPayload.exercises`]: exercises,
+      [`users.${uid}.difficultyAdjustment`]: adjustment,
+    } as Record<string, unknown>);
+
+    // Optimistic update
+    const current = this.todaySession();
+    if (current && current.id === sessionId) {
+      const updated = { ...current };
+      updated.users = { ...updated.users };
+      updated.users[uid] = {
+        ...updated.users[uid],
+        assignedWorkoutPayload: { ...updated.users[uid].assignedWorkoutPayload, exercises },
+        difficultyAdjustment: adjustment,
+      };
+      this.todaySession.set(updated);
+    }
+  }
+
+  async addReaction(pairId: string, sessionId: string, emoji: string): Promise<void> {
+    const uid = this.auth.uid();
+    if (!uid) return;
+
+    const reaction: SessionReaction = {
+      emoji,
+      fromUid: uid,
+      createdAt: Timestamp.now(),
+    };
+
+    const path = `pairs/${pairId}/sessions/${sessionId}`;
+    await this.fs.update(path, {
+      reactions: arrayUnion(reaction) as unknown,
+    } as Record<string, unknown>);
+
+    // Optimistic update for today session
+    const current = this.todaySession();
+    if (current && current.id === sessionId) {
+      const updated = { ...current };
+      updated.reactions = [...(updated.reactions ?? []), reaction];
+      this.todaySession.set(updated);
+    }
   }
 
   private getTodayISO(): string {
